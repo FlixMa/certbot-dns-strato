@@ -1,0 +1,12 @@
+certbot certonly \
+  -v \
+  --work-dir './letsencrypt/work' \
+  --logs-dir './letsencrypt/logs' \
+  --config-dir './letsencrypt/config' \
+  --authenticator dns-strato \
+  --dns-strato-credentials credentials.ini \
+  --dns-strato-propagation-seconds 900 \
+  --server https://acme-v02.api.letsencrypt.org/directory \
+  --agree-tos \
+  --rsa-key-size 4096 \
+  -d '*.flixma.de'
