@@ -1,4 +1,6 @@
 build
+dist
 *.egg-info
 letsencrypt
 credentials.ini
+.DS_Store

@@ -40,7 +40,7 @@ class Authenticator(dns_common.DNSAuthenticator):
             "Strato credentials INI file",
             {
                 "username": "Username for Strato API.",
-                "password": "Password for Strato API.",
+                "password": "Password for Strato API."
             },
         )
 
@@ -70,7 +70,7 @@ class Authenticator(dns_common.DNSAuthenticator):
         strato.push_txt_records()
 
     def _get_configured_strato_client(self):
-        strato = _StratoApi()
+        strato = _StratoApi(self.credentials.conf('domain_display_name'))
         if not strato.login(self.credentials.conf('username'), self.credentials.conf('password'), self.credentials.conf('totp_secret'), self.credentials.conf('totp_devicename')):
             print('ERROR: Strato login not accepted.')
             sys.exit(1)
@@ -82,9 +82,10 @@ class Authenticator(dns_common.DNSAuthenticator):
 class _StratoApi:
     """Class to validate domains with dns-01 challange"""
 
-    def __init__(self):
+    def __init__(self, domain_display_name=None):
         """ Initializes the data structure """
         self.api_url = 'https://www.strato.de/apps/CustomerService'
+        self.domain_display_name = domain_display_name
         self.domain_name = None
         self.second_level_domain_name = None
         
@@ -202,7 +203,7 @@ class _StratoApi:
 
     def set_domain_name(self, domain_name):
         self.domain_name = domain_name
-        self.second_level_domain_name = re.search(r'([\w-]+\.[\w-]+)$',
+        self.second_level_domain_name = self.domain_display_name or re.search(r'([\w-]+\.[\w-]+)$',
             self.domain_name).group(1)
         
         print(f'INFO: second_level_domain_name: {self.second_level_domain_name}')
