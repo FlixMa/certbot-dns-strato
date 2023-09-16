@@ -15,6 +15,7 @@ class Authenticator(dns_common.DNSAuthenticator):
     """DNS Authenticator for Strato
 
     This Authenticator uses webscraping of Strato.de to fulfill a dns-01 challenge.
+    Accessing different hosts like Strato.nl can be configured using the custom_api_host setting in your credentials INI.
     """
 
     description = "Obtain certificates using a DNS TXT record (if you are using Strato for DNS)."
@@ -70,7 +71,13 @@ class Authenticator(dns_common.DNSAuthenticator):
         strato.push_txt_records()
 
     def _get_configured_strato_client(self):
-        strato = _StratoApi(self.credentials.conf('domain_display_name'))
+        strato = _StratoApi(
+            domain_display_name=self.credentials.conf('domain_display_name'),
+            custom_api_scheme=self.credentials.conf('custom_api_scheme'),
+            custom_api_host=self.credentials.conf('custom_api_host'), 
+            custom_api_port=self.credentials.conf('custom_api_port'), 
+            custom_api_path=self.credentials.conf('custom_api_path')
+        )
         if not strato.login(self.credentials.conf('username'), self.credentials.conf('password'), self.credentials.conf('totp_secret'), self.credentials.conf('totp_devicename')):
             print('ERROR: Strato login not accepted.')
             sys.exit(1)
@@ -82,9 +89,14 @@ class Authenticator(dns_common.DNSAuthenticator):
 class _StratoApi:
     """Class to validate domains with dns-01 challange"""
 
-    def __init__(self, domain_display_name=None):
+    def __init__(self, domain_display_name=None, custom_api_scheme=None, custom_api_host=None, custom_api_port=None, custom_api_path=None):
         """ Initializes the data structure """
-        self.api_url = 'https://www.strato.de/apps/CustomerService'
+        api_scheme = 'https' if custom_api_scheme is None else custom_api_scheme
+        api_host = 'www.strato.de' if custom_api_host is None else custom_api_host
+        api_port = '' if custom_api_port is None else (':' + custom_api_port)
+        api_path = '/apps/CustomerService' if custom_api_path is None else custom_api_path
+
+        self.api_url = f"{api_scheme}://{api_host}{api_port}{api_path}"
         self.domain_display_name = domain_display_name
         self.domain_name = None
         self.second_level_domain_name = None
@@ -97,6 +109,8 @@ class _StratoApi:
         self.session_id = ''
         self.package_id = 0
         self.records = []
+
+        self.action_change_txt_records = None
 
 
     def login_2fa(
@@ -115,14 +129,8 @@ class _StratoApi:
         :rtype: requests.Response
 
         """
-        # Is 2FA used
-        if (not response.text.__contains__(
-            '<h1>Zwei-Faktor-Authentifizierung</h1>')
-            ):
-            print('INFO: 2FA is not used.')
-            return response
         if (not totp_secret) or (not totp_devicename):
-            print('ERROR: 2FA parameter is not completely set.')
+            print('INFO: 2FA parameter is not completely set -> skipping.')
             return response
 
         param = {'identifier': username}
@@ -241,6 +249,7 @@ class _StratoApi:
             'action_show_txt_records': '',
             'vhost': self.domain_name
         })
+        print('txt_record_response:\n', request.text)
         for record in re.finditer(
                 r'<select [^>]*name="type"[^>]*>.*?'
                 r'<option[^>]*value="(?P<type>[^"]*)"[^>]*selected[^>]*>'
@@ -253,6 +262,9 @@ class _StratoApi:
                 'type': record.group('type'),
                 'value': record.group('value')
             })
+
+        submit_button_match = next(re.finditer(r'<input [^>]*?name="action_change_txt_records"[^>]*value="(.+?)"[^>]*?>', request.text), None)
+        self.action_change_txt_records = submit_button_match.group(1) if submit_button_match is not None else 'Einstellung+übernehmen'
 
         print('INFO: Current cname/txt records:')
         list(print(f'INFO: - {item["prefix"]} {item["type"]}: {item["value"]}')
@@ -312,7 +324,7 @@ class _StratoApi:
             'prefix': [r['prefix'] for r in self.records],
             'type': [r['type'] for r in self.records],
             'value': [r['value'] for r in self.records],
-            'action_change_txt_records': 'Einstellung+übernehmen',
+            'action_change_txt_records': self.action_change_txt_records,
         }
         print(payload)
         result = self.http_session.post(self.api_url, payload)
