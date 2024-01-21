@@ -225,18 +225,18 @@ class _StratoApi:
             'cID': 0,
             'node': 'kds_CustomerEntryPage',
         })
+        
+        package_name = self.second_level_domain_name.replace('.', r'\.')
         result = re.search(
-            r'<div class="package-information">.+?<span\s+class="domains_\d+_long[^>]*>.+?'
-            + self.second_level_domain_name.replace('.', r'\.')
-            + r'.+?cID=(?P<cID>\d+)',
+            f'data-sortValue="{package_name}"' + r'[\S\s]+?id="package_information_(?P<pid>.+?)"[\S\s]+?cID=(?P<cid>.+?)&',
             request.text.replace('\n', ' ')
-            )
+        )
 
         if result is None:
             print(f'ERROR: Domain {self.second_level_domain_name} not '
                 'found in strato packages')
             sys.exit(1)
-        self.package_id = result.group('cID')
+        self.package_id = result.group('cid')
         print(f'INFO: strato package id (cID): {self.package_id}')
 
 
@@ -249,6 +249,8 @@ class _StratoApi:
             'action_show_txt_records': '',
             'vhost': self.domain_name
         })
+        "https://www.strato.de/apps/CustomerService?cID=2&node=ManageDomains&action_show_txt_records&vhost=flixma.de"
+
         print('txt_record_response:\n', request.text)
         for record in re.finditer(
                 r'<select [^>]*name="type"[^>]*>.*?'
