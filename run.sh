@@ -5,7 +5,7 @@ certbot certonly \
   --config-dir './letsencrypt/config' \
   --authenticator dns-strato \
   --dns-strato-credentials credentials.ini \
-  --dns-strato-propagation-seconds 900 \
+  --dns-strato-propagation-seconds 30 \
   --server https://acme-v02.api.letsencrypt.org/directory \
   --agree-tos \
   --rsa-key-size 4096 \
