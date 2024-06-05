@@ -6,6 +6,8 @@ import sys
 import time
 import pyotp
 import requests
+import urllib
+from bs4 import BeautifulSoup
 
 from certbot.plugins import dns_common
 
@@ -48,12 +50,17 @@ class Authenticator(dns_common.DNSAuthenticator):
     def _perform(self, domain, validation_name, validation):
         strato = self._get_configured_strato_client()
         strato.set_domain_name(domain)
-        # Requests package id which package contains domain to be verified
-        strato.get_package_id()
+        
+        if strato.package_id is None:
+            # Requests package id which package contains domain to be verified
+            strato.get_package_id()
+
         # Requests all current TXT/CNAME/SPF/DKIM records from Strato
         strato.get_txt_records()
+
         # Add verification token record
         strato.set_amce_record(validation_name, validation)
+        
         # Sets all TXT/CNAME/SPF/DKIM records with AMCE record in dns server
         strato.push_txt_records()
 
@@ -61,12 +68,17 @@ class Authenticator(dns_common.DNSAuthenticator):
     def _cleanup(self, domain, validation_name, validation):
         strato = self._get_configured_strato_client()
         strato.set_domain_name(domain)
-        # Requests package id which package contains domain to be verified
-        strato.get_package_id()
+        
+        if strato.package_id is None:
+            # Requests package id which package contains domain to be verified
+            strato.get_package_id()
+
         # Requests all current TXT/CNAME/SPF/DKIM records from Strato
         strato.get_txt_records()
+
         # Remove verification token record
         strato.reset_amce_record(validation_name)
+        
         # Sets all TXT/CNAME/SPF/DKIM records without AMCE record in dns server
         strato.push_txt_records()
 
@@ -76,7 +88,8 @@ class Authenticator(dns_common.DNSAuthenticator):
             custom_api_scheme=self.credentials.conf('custom_api_scheme'),
             custom_api_host=self.credentials.conf('custom_api_host'), 
             custom_api_port=self.credentials.conf('custom_api_port'), 
-            custom_api_path=self.credentials.conf('custom_api_path')
+            custom_api_path=self.credentials.conf('custom_api_path'),
+            custom_package_id=self.credentials.conf('custom_package_id')
         )
         if not strato.login(self.credentials.conf('username'), self.credentials.conf('password'), self.credentials.conf('totp_secret'), self.credentials.conf('totp_devicename')):
             print('ERROR: Strato login not accepted.')
@@ -89,7 +102,7 @@ class Authenticator(dns_common.DNSAuthenticator):
 class _StratoApi:
     """Class to validate domains with dns-01 challange"""
 
-    def __init__(self, domain_display_name=None, custom_api_scheme=None, custom_api_host=None, custom_api_port=None, custom_api_path=None):
+    def __init__(self, domain_display_name=None, custom_api_scheme=None, custom_api_host=None, custom_api_port=None, custom_api_path=None, custom_package_id=None):
         """ Initializes the data structure """
         api_scheme = 'https' if custom_api_scheme is None else custom_api_scheme
         api_host = 'www.strato.de' if custom_api_host is None else custom_api_host
@@ -104,10 +117,13 @@ class _StratoApi:
 
         # setup session for cookie sharing
         self.http_session = requests.session()
+        self.http_session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0'
+        })
 
         # Set later
         self.session_id = ''
-        self.package_id = 0
+        self.package_id = custom_package_id
         self.records = []
 
         self.action_change_txt_records = None
@@ -119,7 +135,7 @@ class _StratoApi:
             username: str,
             totp_secret: str,
             totp_devicename: str,
-            ) -> requests.Response:
+        ) -> requests.Response:
         """Login with Two-factor authentication by TOTP on Strato website.
 
         :param str totp_secret: 2FA TOTP secret hash
@@ -129,19 +145,21 @@ class _StratoApi:
         :rtype: requests.Response
 
         """
+        # Is 2FA used
+        soup = BeautifulSoup(response.text, 'html.parser')
+        if soup.find('h1', string=re.compile('Zwei\\-Faktor\\-Authentifizierung')) is None:
+            print('INFO: 2FA is not used.')
+            return response
         if (not totp_secret) or (not totp_devicename):
-            print('INFO: 2FA parameter is not completely set -> skipping.')
+            print('ERROR: 2FA parameter is not completely set.')
             return response
 
         param = {'identifier': username}
 
         # Set parameter 'totp_token'
-        result = re.search(
-            r'<input type="hidden" name="totp_token" '
-            r'value="(?P<totp_token>\w+)">',
-            response.text)
-        if result:
-            param['totp_token'] = result.group('totp_token')
+        totp_input = soup.find('input', attrs={'type': 'hidden', 'name': 'totp_token'})
+        if totp_input is not None:
+            param['totp_token'] = totp_input['value']
         else:
             print('ERROR: Parsing error on 2FA site by totp_token.')
             return response
@@ -190,23 +208,27 @@ class _StratoApi:
         """
         # request session id
         self.http_session.get(self.api_url)
-        request = self.http_session.post(self.api_url, {
-            'identifier': username,
-            'passwd': password,
-            'action_customer_login.x': 'Login'
-        })
-
+        data={'identifier': username, 'passwd': password, 'action_customer_login.x': 'Login'}
+        
+        
+        response1 = self.http_session.get(self.api_url)
+        print(response1.url)
+        response2 = self.http_session.post(self.api_url, data=data, allow_redirects=True)
+        print(response2.url)
+        
         # Check 2FA Login
-        request = self.login_2fa(request, username,
-            totp_secret, totp_devicename)
+        response3 = self.login_2fa(response2, username, totp_secret, totp_devicename)
+        print(response3.url)
 
         # Check successful login
-        result = re.search(r'sessionID=(\w+)', request.url)
-        if not result:
+        parsed_url = urllib.parse.urlparse(response3.url)
+        query_parameters = urllib.parse.parse_qs(parsed_url.query)
+        if 'sessionID' not in query_parameters:
             return False
-        self.session_id = result.group(1)
+        self.session_id = query_parameters['sessionID'][0]
         print(f'DEBUG: session_id: {self.session_id}')
         return True
+
 
 
     def set_domain_name(self, domain_name):
@@ -225,19 +247,22 @@ class _StratoApi:
             'cID': 0,
             'node': 'kds_CustomerEntryPage',
         })
-        
-        package_name = self.second_level_domain_name.replace('.', r'\.')
-        result = re.search(
-            f'data-sortValue="{package_name}"' + r'[\S\s]+?id="package_information_(?P<pid>.+?)"[\S\s]+?cID=(?P<cid>.+?)&',
-            request.text.replace('\n', ' ')
+        soup = BeautifulSoup(request.text, 'html.parser')
+        package_anchor = soup.select_one(
+            '#package_list > tbody >'
+            f' tr:has(.package-information:-soup-contains("{self.second_level_domain_name}"))'
+            ' .jss_with_own_packagename a'
         )
-
-        if result is None:
-            print(f'ERROR: Domain {self.second_level_domain_name} not '
-                'found in strato packages')
-            sys.exit(1)
-        self.package_id = result.group('cid')
-        print(f'INFO: strato package id (cID): {self.package_id}')
+        if package_anchor:
+            if package_anchor.has_attr('href'):
+                link_target = urllib.parse.urlparse(package_anchor["href"])
+                self.package_id = urllib.parse.parse_qs(link_target.query)["cID"][0]
+                print(f'INFO: strato package id (cID): {self.package_id}')
+                return
+        
+        print(f'ERROR: Domain {self.second_level_domain_name} not '
+            'found in strato packages. Using fallback cID=1')
+        self.package_id = 1
 
 
     def get_txt_records(self) -> None:
@@ -249,9 +274,8 @@ class _StratoApi:
             'action_show_txt_records': '',
             'vhost': self.domain_name
         })
-        "https://www.strato.de/apps/CustomerService?cID=2&node=ManageDomains&action_show_txt_records&vhost=flixma.de"
 
-        print('txt_record_response:\n', request.text)
+        #print('txt_record_response:\n', request.text)
         for record in re.finditer(
                 r'<select [^>]*name="type"[^>]*>.*?'
                 r'<option[^>]*value="(?P<type>[^"]*)"[^>]*selected[^>]*>'

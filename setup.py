@@ -1,13 +1,14 @@
 from setuptools import setup
 from setuptools import find_packages
 
-version = "0.2.0"
+version = "0.2.2"
 
 install_requires = [
     'setuptools',
     'certbot>=2.0',
     'requests',
-    'pyotp'
+    'pyotp',
+    'beautifulsoup4'
 ]
 
 # read the contents of your README file
