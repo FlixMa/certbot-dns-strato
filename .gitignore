@@ -5,6 +5,5 @@ letsencrypt
 credentials.ini
 .DS_Store
 steps.txt
-certbot_dns_strato/__pycache__/__init__.cpython-310.pyc
-certbot_dns_strato/__pycache__/dns_strato.cpython-310.pyc
+**/__pycache__/*
 try_auth.py
