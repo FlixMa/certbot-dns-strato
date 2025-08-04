@@ -213,10 +213,12 @@ class _StratoApi:
         
         response1 = self.http_session.get(self.api_url)
         print(response1.url)
+        time.sleep(1)  # wait for 1 second to avoid too fast requests
         response2 = self.http_session.post(self.api_url, data=data, allow_redirects=True)
         print(response2.url)
         
         # Check 2FA Login
+        time.sleep(1)  # wait for 1 second to avoid too fast requests
         response3 = self.login_2fa(response2, username, totp_secret, totp_devicename)
         print(response3.url)
 
