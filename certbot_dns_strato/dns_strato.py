@@ -2,7 +2,6 @@
 import logging
 import sys
 import re
-import sys
 import time
 import pyotp
 import requests
@@ -274,7 +273,7 @@ class _StratoApi:
             'cID': self.package_id,
             'node': 'ManageDomains',
             'action_show_txt_records': '',
-            'vhost': self.domain_name
+            'vhost': self.second_level_domain_name
         })
 
         #print('txt_record_response:\n', request.text)
@@ -329,12 +328,12 @@ class _StratoApi:
 
     def set_amce_record(self, txt_key, txt_value) -> None:
         """Set or replace AMCE txt record on domain."""
-        self.add_txt_record(txt_key.replace('.' + self.domain_name, ''), 'TXT', txt_value)
+        self.add_txt_record(txt_key.replace('.' + self.second_level_domain_name, ''), 'TXT', txt_value)
 
 
     def reset_amce_record(self, txt_key) -> None:
         """Reset AMCE txt record on domain."""
-        self.remove_txt_record(txt_key.replace('.' + self.domain_name, ''), 'TXT')
+        self.remove_txt_record(txt_key.replace('.' + self.second_level_domain_name, ''), 'TXT')
 
 
     def push_txt_records(self) -> None:
@@ -347,8 +346,7 @@ class _StratoApi:
             'sessionID': self.session_id,
             'cID': self.package_id,
             'node': 'ManageDomains',
-            'vhost': self.domain_name,
-            'spf_type': 'NONE',
+            'vhost': self.second_level_domain_name,
             'prefix': [r['prefix'] for r in self.records],
             'type': [r['type'] for r in self.records],
             'value': [r['value'] for r in self.records],
